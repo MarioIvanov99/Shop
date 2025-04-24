@@ -1,0 +1,177 @@
+package com.shop.service;
+
+import com.shop.exception.InsufficientFundsException;
+import com.shop.model.*;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.*;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.util.*;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+class CashierDeskServiceTest {
+    @Mock
+    private ShopService shopService;
+
+    @InjectMocks
+    private CashierDeskService cashierDeskService;
+
+    @BeforeEach
+    void setUp() {
+        MockitoAnnotations.openMocks(this);
+
+        cashierDeskService = new CashierDeskService(shopService);
+    }
+
+    @Test
+    void testGetTotalBasketPrice() {
+        Basket basket = new Basket();
+        Product apple = new FoodProduct.FoodProductBuilder().productId("FP01").name("Apple").price(new BigDecimal("1.5")).build();
+        Product banana = new FoodProduct.FoodProductBuilder().productId("FP02").name("Banana").price(new BigDecimal("2.0")).build();
+
+        LocalDate date1 = LocalDate.of(2023, 10, 1);
+        LocalDate date2 = LocalDate.of(2023, 10, 5);
+
+        TreeMap<LocalDate, Integer> appleInventory = new TreeMap<>();
+        appleInventory.put(date1, 50);
+        appleInventory.put(date2, 30);
+
+        TreeMap<LocalDate, Integer> bananaInventory = new TreeMap<>();
+        bananaInventory.put(date1, 20);
+
+        basket.getItems().put(apple, appleInventory);
+        basket.getItems().put(banana, bananaInventory);
+
+        when(shopService.getProductPrice(apple, date1)).thenReturn(BigDecimal.valueOf(1.5));
+        when(shopService.getProductPrice(apple, date2)).thenReturn(BigDecimal.valueOf(1.2));
+        when(shopService.getProductPrice(banana, date1)).thenReturn(BigDecimal.valueOf(2.0));
+
+        BigDecimal expectedTotal = BigDecimal.valueOf(50).multiply(BigDecimal.valueOf(1.5))
+                .add(BigDecimal.valueOf(30).multiply(BigDecimal.valueOf(1.2)))
+                .add(BigDecimal.valueOf(20).multiply(BigDecimal.valueOf(2.0)))
+                .setScale(2, RoundingMode.HALF_UP);
+
+        BigDecimal actualTotal = cashierDeskService.getTotalBasketPrice(basket);
+
+        assertEquals(expectedTotal, actualTotal);
+
+        verify(shopService).getProductPrice(apple, date1);
+        verify(shopService).getProductPrice(apple, date2);
+        verify(shopService).getProductPrice(banana, date1);
+    }
+
+    @Test
+    void testProcessPurchaseWhenBudgetIsEnough() {
+        Basket basket = new Basket();
+        Product apple = new FoodProduct.FoodProductBuilder().productId("FP01").name("Apple").price(new BigDecimal("1.5")).build();
+        LocalDate date1 = LocalDate.of(2023, 10, 1);
+
+        TreeMap<LocalDate, Integer> appleInventory = new TreeMap<>();
+        appleInventory.put(date1, 10);
+        basket.getItems().put(apple, appleInventory);
+
+        when(shopService.getProductPrice(apple, date1)).thenReturn(BigDecimal.valueOf(1.5));
+
+        BigDecimal budget = BigDecimal.valueOf(20);
+
+        Cashier cashier = new Cashier("John Doe", new BigDecimal("10.0"));
+
+        assertDoesNotThrow(() -> cashierDeskService.processPurchase(basket, budget, cashier));
+    }
+
+    @Test
+    void testProcessPurchaseWhenBudgetIsNotEnough() {
+        Basket basket = new Basket();
+        Product apple = new FoodProduct.FoodProductBuilder().productId("FP01").name("Apple").price(new BigDecimal("1.5")).build();
+        LocalDate date1 = LocalDate.of(2023, 10, 1);
+
+        TreeMap<LocalDate, Integer> appleInventory = new TreeMap<>();
+        appleInventory.put(date1, 10);
+        basket.getItems().put(apple, appleInventory);
+
+        when(shopService.getProductPrice(apple, date1)).thenReturn(BigDecimal.valueOf(5.0));
+
+        BigDecimal budget = BigDecimal.valueOf(20);
+
+        Cashier cashier = new Cashier("John Doe", new BigDecimal("10.0"));
+
+        assertThrows(InsufficientFundsException.class, () -> cashierDeskService.processPurchase(basket, budget, cashier));
+
+        verify(shopService).addProduct(apple, 10);
+    }
+
+    @Test
+    void testTotalPriceForAllCustomers() {
+        Basket basket = new Basket();
+        Product apple = new FoodProduct.FoodProductBuilder().productId("FP01").name("Apple").price(new BigDecimal("1.5")).build();
+        Product banana = new FoodProduct.FoodProductBuilder().productId("FP02").name("Banana").price(new BigDecimal("2.0")).build();
+
+        LocalDate date1 = LocalDate.of(2023, 10, 1);
+        LocalDate date2 = LocalDate.of(2023, 10, 5);
+
+        TreeMap<LocalDate, Integer> appleInventory = new TreeMap<>();
+        appleInventory.put(date1, 50);
+        appleInventory.put(date2, 30);
+
+        TreeMap<LocalDate, Integer> bananaInventory = new TreeMap<>();
+        bananaInventory.put(date1, 20);
+
+        basket.getItems().put(apple, appleInventory);
+        basket.getItems().put(banana, bananaInventory);
+
+        when(shopService.getProductPrice(apple, date1)).thenReturn(BigDecimal.valueOf(1.5));
+        when(shopService.getProductPrice(apple, date2)).thenReturn(BigDecimal.valueOf(1.2));
+        when(shopService.getProductPrice(banana, date1)).thenReturn(BigDecimal.valueOf(2.0));
+
+        BigDecimal expectedTotal = BigDecimal.valueOf(50).multiply(BigDecimal.valueOf(1.5))
+                .add(BigDecimal.valueOf(30).multiply(BigDecimal.valueOf(1.2)))
+                .add(BigDecimal.valueOf(20).multiply(BigDecimal.valueOf(2.0)));
+
+        Customer customer1 = new Customer(BigDecimal.valueOf(100));
+        customer1.setBasket(basket);
+        Customer customer2 = new Customer(BigDecimal.valueOf(100));
+        customer2.setBasket(basket);
+
+        List<Customer> customers = new ArrayList<>();
+        customers.add(customer1);
+        customers.add(customer2);
+
+        BigDecimal actualTotal = cashierDeskService.getTotalCustomerSpending(customers).setScale(2, RoundingMode.HALF_UP);
+
+        assertEquals(expectedTotal.multiply(BigDecimal.valueOf(2)), actualTotal);
+
+        verify(shopService, times(2)).getProductPrice(apple, date1);
+        verify(shopService, times(2)).getProductPrice(apple, date2);
+        verify(shopService, times(2)).getProductPrice(banana, date1);
+    }
+
+    @Test
+    void testCreateReceiptHasCorrectInfor() {
+
+    Cashier cashier = new Cashier("John Doe", new BigDecimal("10.0"));
+    Basket basket = new Basket();
+    Product apple = new FoodProduct.FoodProductBuilder().productId("FP01").name("Apple").price(new BigDecimal("1.5")).build();
+    LocalDate date1 = LocalDate.of(2023, 10, 1);
+
+    TreeMap<LocalDate, Integer> appleInventory = new TreeMap<>();
+    appleInventory.put(date1, 10);
+    basket.getItems().put(apple, appleInventory);
+
+    when(shopService.getProductPrice(apple, date1)).thenReturn(BigDecimal.valueOf(1.5));
+
+    BigDecimal expectedTotal = new BigDecimal("15.00");
+    Map<Product, Integer> expectedItems = new HashMap<>();
+    expectedItems.put(apple, 10);
+
+    Receipt receipt = cashierDeskService.createReceipt(cashier, basket);
+
+    assertEquals(expectedItems, receipt.getItems());
+    assertEquals(expectedTotal, receipt.getTotal());
+    }
+
+}

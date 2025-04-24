@@ -1,0 +1,16 @@
+package com.shop.service;
+
+import com.shop.model.Customer;
+import com.shop.model.Product;
+
+public class CustomerService {
+    private ShopService shopService;
+
+    public CustomerService(ShopService shopService) {
+        this.shopService = shopService;
+    }
+
+    public void addProductToBasket(Customer customer, Product product, Integer amount) {
+        customer.getBasket().addProduct(product, amount);
+    }
+}
